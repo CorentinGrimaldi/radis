@@ -409,7 +409,7 @@ class BaseFactory(DatabankLoader):
             )
 
     def _add_Evib123Erot(self, df, calc_Evib_harmonic_anharmonic=False):
-        """Calculate Evib & Erot in dataframe.
+        """Add Evib & Erot in of lower and upper levels to the lines of the dataframe.
 
         Parameters
         ----------
@@ -443,6 +443,12 @@ class BaseFactory(DatabankLoader):
                 raise NotImplementedError(
                     "Molecules other than HITRAN class 5 (CO2) not implemented"
                 )  # TODO
+
+        elif (
+            self.params.levelsfmt == "cdsd-hamil"
+        ):  # fetch from levels precomputed by rediagonlizing the CDSD-4000 Hamiltonian
+        # Each (p,c,j,n) level has different vibrational energies so we groupby()apply by pcjn
+            return self._add_Evib123Erot_CDSD_pcJN(df)
 
         else:
             raise NotImplementedError(
@@ -783,13 +789,13 @@ class BaseFactory(DatabankLoader):
             #            for i in df.index:
             #                df.loc[i, 'Evibl'] = energies.at[i, 'Evib']
             # the map below is crazy fast compared to above loop
-            df.loc[:, "Evibl"] = df_pcJN.index.map(Evib_dict.get).values
+            df.loc[:, "Evibl"] = df_pcJN.index.map(Evib_dict.get).values   # TODO IMPORTANT : shouldn't it be df_pcJN ? 
             # Add upper state energy
             df_pcJN = df.set_index(["polyu", "wangu", "ju", "ranku"])
             #            for i in df.index:
             #                df.loc[i, 'Evibu'] = energies.at[i, 'Evib']
             # the map below is crazy fast compared to above loop
-            df.loc[:, "Evibu"] = df_pcJN.index.map(Evib_dict.get).values
+            df.loc[:, "Evibu"] = df_pcJN.index.map(Evib_dict.get).values  # TODO IMPORTANT : shouldn't it be df_pcJN ? 
 
             return df.loc[:, ["Evibl", "Evibu"]]
 
@@ -976,6 +982,141 @@ class BaseFactory(DatabankLoader):
         self.profiler.stop("fetch_energy_4", "Fetched energies")
         return  # None: Dataframe updated
 
+    def _add_Evib123Erot_CDSD_pcJN(self, df, calc_Evib_harmonic_anharmonic=False):
+        """Fetch Evib1, Evib2, Evib3 & Erot from the energy database into Lines database,
+        matching numbers p,c,j,n
+
+        - Evib is fetched from Energy Levels database
+        - Erot is calculated with Erot = E - Evib
+
+        Parameters
+        ----------
+        df: DataFrame
+            list of transitions
+
+        Other Parameters
+        ----------------
+        calc_Evib_harmonic_anharmonic: boolean
+            if ``True``, calculate harmonic and anharmonic components of
+            vibrational energies (for Treanor distributions)
+        """
+        if __debug__:
+            printdbg(
+                "called _add_EvibErot_CDSD_pcJN(calc_Evib_harmonic_anharmonic={0})".format(
+                    calc_Evib_harmonic_anharmonic
+                )
+            )
+
+        if calc_Evib_harmonic_anharmonic:
+            raise NotImplementedError
+
+        molecule = self.input.molecule
+        state = self.input.state  # electronic state
+        # TODO: for multi-molecule mode: add loops on molecules and states too
+        assert molecule == "CO2"
+
+        self.profiler.start("fetch_energy_3", 2)
+
+        # Check energy levels are here
+        for iso in self._get_isotope_list(molecule):
+            if not iso in self.get_partition_function_molecule(molecule):
+                raise AttributeError(
+                    "No Partition function calculator defined for isotope {0}".format(
+                        iso
+                    )
+                    + ". You need energies to calculate a non-equilibrium spectrum!"
+                    + " Fill the levels parameter in your database definition, "
+                    + " with energies of known format: {0}".format(KNOWN_LVLFORMAT)
+                    + ". See SpectrumFactory.load_databank() help for more details"
+                )
+
+        def get_Evib_CDSD_pcJN_1iso(df, iso):
+            """Calculate Evib for a given isotope (energies are specific to a
+            given isotope)
+
+            Notes
+            -----
+            for devs:
+
+            Unlike get_EvibErot_CDSD_pcN_1iso and get_EvibErot_CDSD_pc_1iso,
+            no need to use groupby() here, as (per construction) there is only
+            one level for a combination of p, c, J, N
+            """
+
+            # list of energy levels for given isotope
+            energies = self.get_energy_levels(molecule, iso, state)
+
+            # reindexing to get a direct access to level database (instead of using df.v1==v1 syntax)
+            index = ["p", "c", "j", "N"]
+            #            energies.set_index(index, inplace=True) # cant get it work for some reason
+            # ... (it seems groupby().apply() is building some cache variables and
+            # ... I cant reset the index of energies properly)
+            energies = energies.set_index(index, inplace=False)
+            Evib1_dict = dict(list(zip(energies.index, energies.Evib1)))
+            Evib2_dict = dict(list(zip(energies.index, energies.Evib2)))
+            Evib3_dict = dict(list(zip(energies.index, energies.Evib3)))
+
+            # Add lower state energy
+            df_pcJN = df.set_index(["polyl", "wangl", "jl", "rankl"])
+            # ... assert changing index didn't change the order (very important for the following step where we add a new column)
+            assert df["wav"].iloc[0] == df_pcJN["wav"].iloc[0]
+            assert df["wav"].iloc[-1] == df_pcJN["wav"].iloc[-1]
+            
+            
+            # the map below is crazy fast compared to above loop
+            df.loc[:, "Evib1l"] = df_pcJN.index.map(Evib1_dict.get).values  # TODO important : shouldn't it be df_pcJN ? 
+            df.loc[:, "Evib2l"] = df_pcJN.index.map(Evib2_dict.get).values
+            df.loc[:, "Evib3l"] = df_pcJN.index.map(Evib3_dict.get).values
+            # Add upper state energy
+            df_pcJN = df.set_index(["polyu", "wangu", "ju", "ranku"])
+            # the map below is crazy fast compared to above loop
+            df.loc[:, "Evib1u"] = df_pcJN.index.map(Evib1_dict.get).values
+            df.loc[:, "Evib2u"] = df_pcJN.index.map(Evib2_dict.get).values
+            df.loc[:, "Evib3u"] = df_pcJN.index.map(Evib3_dict.get).values
+
+            return df.loc[:, ["Evib1l", "Evib2l", "Evib3l", "Evib1u", "Evib2u", "Evib3u"]]
+
+        # slower than the following:
+        df["Evib1l"] = np.nan
+        df["Evib2l"] = np.nan
+        df["Evib3l"] = np.nan
+        df["Evib1u"] = np.nan
+        df["Evib2u"] = np.nan
+        df["Evib3u"] = np.nan
+
+        # multiple-isotopes in database
+        if "iso" in df:
+            for iso, idx in df.groupby("iso").indices.items():
+                df.loc[idx, ["Evib1l", "Evib2l", "Evib3l", "Evib1u", "Evib2u", "Evib3u"]] = get_Evib_CDSD_pcJN_1iso(
+                    df.loc[idx], iso
+                )
+
+                if radis.config["DEBUG_MODE"]:
+                    assert (df.loc[idx, "iso"] == iso).all()
+
+        else:
+            iso = df.attrs["iso"]
+            df.loc[:, ["Evib1l", "Evib2l", "Evib3l", "Evib1u", "Evib2u", "Evib3u"]] = get_Evib_CDSD_pcJN_1iso(df, iso)
+
+        # Add total vibrational energy too (doesnt cost much, and can plot populations in spectrum)
+        df["Evibu"] = df.Evib1u + df.Evib2u + df.Evib3u
+        df["Evibl"] = df.Evib1l + df.Evib2l + df.Evib3l
+
+        # Get rotational energy: better recalculate than look up the database
+        # (much faster!: perf ~25s -> 765µs)
+        df["Erotu"] = df.Eu - df.Evibu
+        df["Erotl"] = df.El - df.Evibl
+
+        self.profiler.stop(
+            "fetch_energy_3", f"Fetched energies for all {len(df)} transitions"
+        )
+
+        if __debug__:
+            self.assert_no_nan(df, "Evibu")
+            self.assert_no_nan(df, "Evibl")
+
+        return  # None: Dataframe updated
+
     def _add_EvibErot_RADIS_cls1(self, df, calc_Evib_harmonic_anharmonic=False):
         """Fetch Evib & Erot in dataframe for HITRAN class 1 (diatomic)
         molecules.
@@ -1039,6 +1180,10 @@ class BaseFactory(DatabankLoader):
 
             # Add lower state energy
             df_v = df.set_index(["vl"])
+            # ... assert changing index didn't change the order (very important for the following step where we add a new column)
+            assert df["wav"].iloc[0] == df_v["wav"].iloc[0]
+            assert df["wav"].iloc[-1] == df_v["wav"].iloc[-1]
+            
             df["Evibl"] = df_v.index.map(Evib_dict.get).values
 
             # Add upper state energy
@@ -1144,11 +1289,15 @@ class BaseFactory(DatabankLoader):
             #            for i in df.index:
             #                df.loc[i, 'Evib1l'] = energies.at[i, 'Evib1']
             # the map below is crazy fast compared to above loop
-            df["Evib1l"] = df_v1v2l2v3.index.map(Evib1_dict.get).values
+            df["Evib1l"] = df_v1v2l2v3.index.map(Evib1_dict.get).values      # TODO Important : shouldn't it be df_v1v2l2v3["Evib1l"] = ... ? or better df(["v1l", "v2l", "l2l", "v3l"]).map(Evib1_dict.get).values 
             df["Evib2l"] = df_v1v2l2v3.index.map(Evib2_dict.get).values
             df["Evib3l"] = df_v1v2l2v3.index.map(Evib3_dict.get).values
             # TODO @dev # performance: try getting all 3 values at the same time?
             # with:  Evib123_dict = dict(list(zip(energies.index, (energies.Evib1, energies.Evib2, energies.Evib3))))
+
+            # ... assert changing index didn't change the order (very important for the following step where we add a new column)
+            assert df["wav"].iloc[0] == df_v1v2l2v3["wav"].iloc[0]
+            assert df["wav"].iloc[-1] == df_v1v2l2v3["wav"].iloc[-1]
 
             # Add upper state energy
             df_v1v2l2v3 = df.set_index(["v1u", "v2u", "l2u", "v3u"])

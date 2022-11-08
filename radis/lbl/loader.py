@@ -1757,14 +1757,18 @@ class DatabankLoader(object):
 
             # Reference: https://github.com/radis/radis/issues/121
 
-            filtered_path = [fname for fname in path]
+            filtered_path = path.copy()
             for fname in path:
-                for likely_fname_cache in [
-                    splitext(fname)[0] + ".h5",
-                    fname + ".h5",
-                    splitext(fname)[0] + ".hdf5",
-                    fname + ".hdf5",
-                ]:
+                # compare to all possible cache file names. Cache file name of blabla.dat might be blabla.dat.h5 or blabla.h5 
+                ext = splitext(fname)[1]
+                if ext is None:
+                    list_name = [fname + ".h5", fname + ".hdf5"]
+                else:
+                    list_name = [
+                        splitext(fname)[0] + ".h5",
+                        splitext(fname)[0] + ".hdf5",
+                    ]
+                for likely_fname_cache in list_name:
                     if likely_fname_cache in path and likely_fname_cache != fname:
                         filtered_path.remove(likely_fname_cache)
             new_paths += filtered_path

@@ -2075,8 +2075,10 @@ class BroadenFactory(BaseFactory):
                     # lines with same truncation are grouped together in the LDM basis)
 
                     ki0 = group.ki0.values
-                    Iv0 = group.Iv0.values
-                    Iv1 = group.Iv1.values
+                    Iv0 = group.Iv0.values.astype(np.float64)
+                    Iv1 = group.Iv1.values.astype(np.float64)
+                    # assert Iv0.dtype == np.float64
+                    # assert Iv1.dtype == np.float64
                     weight = group[intensity_weight].values
 
                     # build the list of non-empty ranges for all lines with this lineshape :
