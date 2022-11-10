@@ -2168,6 +2168,8 @@ class DatabankLoader(object):
             printg("Loading Line databank")
             t0 = time()
 
+        memory_mapping_engine = self.misc.memory_mapping_engine
+
         # Init variables
         verbose = self.verbose
         warnings_default = self.warnings["default"] if self.warnings else False
@@ -2252,7 +2254,7 @@ class DatabankLoader(object):
                             drop_non_numeric=True,
                             load_wavenum_min=wavenum_min,
                             load_wavenum_max=wavenum_max,
-                            engine="pytables",
+                            engine=memory_mapping_engine
                         )
                         # TODO: implement load_columns
                     elif dbformat in ["hitran", "hitemp"]:
@@ -2272,7 +2274,7 @@ class DatabankLoader(object):
                             drop_non_numeric=True,
                             load_wavenum_min=wavenum_min,
                             load_wavenum_max=wavenum_max,
-                            engine="pytables",
+                            engine=memory_mapping_engine
                         )
                     elif dbformat in ["hdf5-radisdb", "hitemp-radisdb"]:
                         if dbformat == "hitemp-radisdb":

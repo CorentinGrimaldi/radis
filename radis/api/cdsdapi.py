@@ -302,7 +302,7 @@ def cdsd2df(
                 )
             )
         try:
-            save_to_hdf(
+            save_to_hdf(  # !!! compare to line 1346 of hitranapi
                 df,
                 fcache,
                 metadata=new_metadata,
